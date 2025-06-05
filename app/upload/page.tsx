@@ -102,6 +102,9 @@ export default function UploadPage() {
                   <Upload className="h-4 w-4" />
                 </Button>
               </div>
+              <p className="text-xs text-gray-500 mt-1">
+                注: PDFの内容は自動的に処理され、検索可能なテキストに変換されます。
+              </p>
             </div>
           </div>
         </CardContent>
@@ -163,7 +166,7 @@ export default function UploadPage() {
       {debugInfo && (
         <Card className="mt-4 border-blue-300">
           <CardContent className="pt-6">
-            <h3 className="font-semibold">デバッグ情報</h3>
+            <h3 className="font-semibold">処理状況</h3>
             <pre className="text-xs bg-gray-100 p-2 rounded mt-2 overflow-auto">{debugInfo}</pre>
           </CardContent>
         </Card>
