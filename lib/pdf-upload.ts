@@ -1,5 +1,38 @@
 import { createClient } from "@/lib/supabase-client"
 import { extractTextFromPDF, createTextChunks } from "./pdf-text-extractor"
+import { embed } from "ai"
+import { openai } from "@ai-sdk/openai"
+
+// AI SDKを使用してテキストをベクトル化
+async function createEmbedding(text: string): Promise<number[]> {
+  try {
+    // API キーの確認
+    const apiKey = process.env.OPENAI_API_KEY
+    if (!apiKey) {
+      console.warn("OpenAI API key not found, skipping embedding creation")
+      return []
+    }
+
+    console.log("AI SDKでembeddingを作成中...")
+
+    // OpenAI providerにAPI keyを明示的に渡す
+    const openaiProvider = openai({
+      apiKey: apiKey,
+    })
+
+    const { embedding } = await embed({
+      model: openaiProvider.embedding("text-embedding-3-small"),
+      value: text,
+    })
+
+    console.log(`Embedding作成成功: ${embedding.length}次元`)
+    return embedding
+  } catch (error) {
+    console.error("Embedding creation error:", error)
+    console.log("Embeddingの作成をスキップします")
+    return []
+  }
+}
 
 export async function uploadPdf(file: File): Promise<string> {
   try {
@@ -36,7 +69,7 @@ export async function uploadPdf(file: File): Promise<string> {
         url: urlData.publicUrl,
         size: file.size,
         type: file.type,
-        status: "processing", // 処理中に変更
+        status: "processing",
       })
       .select()
       .single()
@@ -50,43 +83,63 @@ export async function uploadPdf(file: File): Promise<string> {
     try {
       console.log("PDFからテキストを抽出中...")
 
-      // ファイルサイズチェック（10MB以上の場合は警告）
-      if (file.size > 10 * 1024 * 1024) {
-        console.warn("大きなファイルです。処理に時間がかかる場合があります。")
-      }
-
-      // テキスト抽出（現在はフォールバックモードのみ）
       const { pageTexts } = await extractTextFromPDF(urlData.publicUrl)
-
       console.log(`${pageTexts.length}ページからテキストを抽出しました`)
 
       // テキストをチャンクに分割
       const chunks = createTextChunks(pageTexts, file.name, docData.id, urlData.publicUrl)
-
       console.log(`${chunks.length}個のチャンクを作成しました`)
 
-      // チャンクをデータベースに保存
+      // OpenAI API keyがあるかチェック
+      const hasApiKey = !!process.env.OPENAI_API_KEY
+      console.log(`OpenAI API Key: ${hasApiKey ? "利用可能" : "未設定"}`)
+
+      // チャンクをベクトル化してデータベースに保存
       if (chunks.length > 0) {
-        // バッチサイズを制限して保存（大量のチャンクを一度に保存しないように）
-        const batchSize = 50
+        const batchSize = 5 // 小さなバッチサイズでAPI制限を回避
         for (let i = 0; i < chunks.length; i += batchSize) {
           const batch = chunks.slice(i, i + batchSize)
 
-          // データベーススキーマに合わせてフィールドを調整
-          const { error: chunksError } = await supabase.from("document_chunks").insert(
-            batch.map((chunk) => ({
-              document_id: chunk.metadata.documentId,
-              content: chunk.content,
-              page: chunk.metadata.page,
-              filename: chunk.metadata.filename,
-              source: chunk.metadata.url,
-              metadata: {
-                chunkIndex: chunk.metadata.chunkIndex,
-                totalChunks: chunks.length,
-                pageNumber: chunk.metadata.page,
-              },
-            })),
+          // 各チャンクをベクトル化（API keyがある場合のみ）
+          const chunksWithEmbeddings = await Promise.all(
+            batch.map(async (chunk) => {
+              console.log(`チャンク ${chunk.id} を処理中...`)
+
+              let embedding: number[] | null = null
+              if (hasApiKey) {
+                try {
+                  const embeddingResult = await createEmbedding(chunk.content)
+                  embedding = embeddingResult.length > 0 ? embeddingResult : null
+                  if (embedding) {
+                    console.log(`チャンク ${chunk.id}: embedding作成成功`)
+                  } else {
+                    console.log(`チャンク ${chunk.id}: embedding作成スキップ`)
+                  }
+                } catch (embeddingError) {
+                  console.error(`チャンク ${chunk.id} のembedding作成に失敗:`, embeddingError)
+                  embedding = null
+                }
+              } else {
+                console.log(`チャンク ${chunk.id}: API keyがないためembeddingをスキップ`)
+              }
+
+              return {
+                document_id: chunk.metadata.documentId,
+                content: chunk.content,
+                page: chunk.metadata.page,
+                filename: chunk.metadata.filename,
+                source: chunk.metadata.url,
+                embedding: embedding,
+                metadata: {
+                  chunkIndex: chunk.metadata.chunkIndex,
+                  totalChunks: chunks.length,
+                  pageNumber: chunk.metadata.page,
+                },
+              }
+            }),
           )
+
+          const { error: chunksError } = await supabase.from("document_chunks").insert(chunksWithEmbeddings)
 
           if (chunksError) {
             console.error("Chunks save error:", chunksError)
@@ -94,6 +147,11 @@ export async function uploadPdf(file: File): Promise<string> {
           }
 
           console.log(`バッチ ${Math.floor(i / batchSize) + 1}/${Math.ceil(chunks.length / batchSize)} 保存完了`)
+
+          // API制限を避けるため少し待機（API keyがある場合のみ）
+          if (hasApiKey && i + batchSize < chunks.length) {
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+          }
         }
       }
 
@@ -119,7 +177,6 @@ export async function uploadPdf(file: File): Promise<string> {
         })
         .eq("id", docData.id)
 
-      // エラーでも処理を続行（フォールバックが動作するため）
       console.log("フォールバック処理により、PDFアップロードは完了しました")
     }
 

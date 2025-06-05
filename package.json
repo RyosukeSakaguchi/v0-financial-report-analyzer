@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@ai-sdk/openai": "latest",
     "@hookform/resolvers": "^3.9.1",
     "@langchain/anthropic": "latest",
     "@langchain/aws": "latest",
@@ -52,6 +53,7 @@
     "@radix-ui/react-toggle-group": "1.1.1",
     "@radix-ui/react-tooltip": "1.1.6",
     "@supabase/supabase-js": "latest",
+    "ai": "latest",
     "autoprefixer": "^10.4.20",
     "axios": "latest",
     "cheerio": "latest",
