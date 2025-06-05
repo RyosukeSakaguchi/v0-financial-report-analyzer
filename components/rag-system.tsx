@@ -32,7 +32,6 @@ interface RagResponse {
   answer: string
   sources: Source[]
   selectedDocuments: string[]
-  debugInfo?: any
 }
 
 interface RagSystemProps {

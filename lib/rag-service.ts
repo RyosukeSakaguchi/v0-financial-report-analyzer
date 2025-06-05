@@ -312,117 +312,39 @@ function findRelevantChunks(query: string, chunks: DocumentChunk[], limit = 3): 
   return relevantChunks
 }
 
-// LLMのような自然な文章を生成する関数
-function generateNaturalLanguageAnswer(query: string, relevantChunks: DocumentChunk[]): string {
+// 動的な回答生成（質問に応じて柔軟に回答）
+function generateDynamicAnswer(query: string, relevantChunks: DocumentChunk[]): string {
   if (relevantChunks.length === 0) {
     return "申し訳ありませんが、アップロードされたPDFからご質問に関連する情報を見つけることができませんでした。より具体的な質問をお試しいただくか、関連する文書をアップロードしてください。"
   }
 
   const queryLower = query.toLowerCase()
 
-  // 質問の種類を判定
-  const isFinancialQuery =
-    queryLower.includes("収益") ||
-    queryLower.includes("revenue") ||
-    queryLower.includes("財務") ||
-    queryLower.includes("financial")
-  const isGrowthQuery = queryLower.includes("成長") || queryLower.includes("growth") || queryLower.includes("増加")
-  const isComparisonQuery = queryLower.includes("比較") || queryLower.includes("compare") || queryLower.includes("前年")
-  const isSpecificYearQuery = /20\d{2}/.test(queryLower)
-
-  // 企業名の検出
-  const isAppleQuery = queryLower.includes("apple") || queryLower.includes("アップル")
-  const isGoogleQuery =
-    queryLower.includes("google") || queryLower.includes("グーグル") || queryLower.includes("alphabet")
-
-  // 情報の抽出
-  const companyName = isAppleQuery ? "Apple" : isGoogleQuery ? "Google/Alphabet" : "対象企業"
-  const year = queryLower.match(/20\d{2}/) ? queryLower.match(/20\d{2}/)![0] : "2023"
-
-  // 回答の構築
+  // 質問の種類を判定して適切な回答スタイルを選択
   let answer = ""
 
-  // イントロ部分
-  if (isFinancialQuery) {
-    answer = `${companyName}の財務状況について、アップロードされた文書から重要な情報をまとめました。`
-  } else if (isGrowthQuery) {
-    answer = `${companyName}の成長戦略と業績推移について、文書から以下の洞察が得られました。`
-  } else if (isComparisonQuery) {
-    answer = `${companyName}の${year}年と前年の比較分析結果は以下の通りです。`
+  if (queryLower.includes("いくら") || queryLower.includes("金額") || queryLower.includes("how much")) {
+    // 数値を求める質問
+    answer = `ご質問の「${query}」について、アップロードされた文書から以下の情報が見つかりました：\n\n`
+  } else if (queryLower.includes("なぜ") || queryLower.includes("理由") || queryLower.includes("why")) {
+    // 理由を求める質問
+    answer = `「${query}」の理由について、文書には以下の説明があります：\n\n`
+  } else if (queryLower.includes("どのように") || queryLower.includes("方法") || queryLower.includes("how")) {
+    // 方法を求める質問
+    answer = `「${query}」について、文書では以下のように説明されています：\n\n`
   } else {
-    answer = `ご質問いただいた「${query}」について、アップロードされた文書から関連情報を抽出しました。`
+    // 一般的な質問
+    answer = `「${query}」に関して、アップロードされた文書から以下の情報を抽出しました：\n\n`
   }
-
-  // 本文部分（チャンクの内容を自然な文章に変換）
-  answer += "\n\n"
 
   // 最も関連性の高いチャンクから情報を抽出
-  const mainChunk = relevantChunks[0]
-  const mainContent = mainChunk.content
-
-  // 財務数値の抽出
-  const revenueMatch = mainContent.match(/(\$\d+(\.\d+)?\s*(billion|million))/)
-  const percentageMatch = mainContent.match(/(\d+(\.\d+)?%)/g)
-
-  if (isFinancialQuery && revenueMatch) {
-    answer += `${year}年度の${companyName}の総収益は${revenueMatch[0]}で、`
-    if (percentageMatch && percentageMatch.length > 0) {
-      answer += `前年比${percentageMatch[0]}の${mainContent.includes("increase") ? "増加" : "減少"}を示しています。`
+  relevantChunks.forEach((chunk, index) => {
+    if (index === 0) {
+      answer += `${chunk.metadata.filename}の${chunk.metadata.section}セクション（ページ${chunk.metadata.page}）によると：\n${chunk.content}\n`
     } else {
-      answer += "前年と比較して変動が見られました。"
+      answer += `\n関連情報として、${chunk.metadata.filename}の${chunk.metadata.section}セクションでは：\n${chunk.content}\n`
     }
-
-    // 詳細情報の追加
-    answer += " " + mainContent.split(".").slice(0, 2).join(".") + "。"
-  } else {
-    // 一般的な情報の要約
-    const sentences = mainContent.split(".")
-    const relevantSentences = sentences.slice(0, Math.min(3, sentences.length))
-    answer += relevantSentences.join(".") + "。"
-  }
-
-  // 追加情報
-  if (relevantChunks.length > 1) {
-    answer += "\n\n"
-
-    const secondaryChunk = relevantChunks[1]
-    const secondaryContent = secondaryChunk.content
-
-    if (secondaryChunk.metadata.section !== mainChunk.metadata.section) {
-      answer += `また、${secondaryChunk.metadata.section}の観点からは、`
-    } else {
-      answer += "さらに、"
-    }
-
-    const secondarySentences = secondaryContent.split(".")
-    const relevantSecondarySentences = secondarySentences.slice(0, Math.min(2, secondarySentences.length))
-    answer += relevantSecondarySentences.join(".") + "。"
-  }
-
-  // 第三のチャンクがあれば追加
-  if (relevantChunks.length > 2) {
-    answer += "\n\n"
-
-    const tertiaryChunk = relevantChunks[2]
-    const tertiaryContent = tertiaryChunk.content
-
-    answer += `補足情報として、${tertiaryChunk.metadata.section}に関しては、`
-
-    const tertiarySentences = tertiaryContent.split(".")
-    const relevantTertiarySentences = tertiarySentences.slice(0, Math.min(1, tertiarySentences.length))
-    answer += relevantTertiarySentences.join(".") + "。"
-  }
-
-  // 結論部分
-  answer += "\n\n"
-
-  if (isFinancialQuery) {
-    answer += `これらの財務指標から、${companyName}は${mainContent.includes("increase") || mainContent.includes("growth") ? "堅調な業績" : "課題に直面しながらも事業を展開"}していることがわかります。`
-  } else if (isGrowthQuery) {
-    answer += `これらの情報から、${companyName}は${mainContent.includes("increase") || mainContent.includes("growth") ? "成長戦略が奏功している" : "成長に向けた取り組みを継続している"}と言えるでしょう。`
-  } else {
-    answer += "以上が文書から抽出できた主な情報です。"
-  }
+  })
 
   return answer
 }
@@ -464,7 +386,7 @@ export async function performRag(query: string, selectedDocIds: number[] = []): 
       }
     }
 
-    // LLMのような自然な文章を生成
+    // 自然な文章を生成する関数を使用
     const answer = generateNaturalLanguageAnswer(query, relevantChunks)
 
     // 出典情報
@@ -503,4 +425,41 @@ export async function getDocumentClassification(
     documents: uploadedDocuments,
     reasoning: reasoning,
   }
+}
+
+// LLMのような自然な文章を生成する関数
+function generateNaturalLanguageAnswer(query: string, relevantChunks: DocumentChunk[]): string {
+  if (relevantChunks.length === 0) {
+    return "申し訳ありませんが、アップロードされたPDFからご質問に関連する情報を見つけることができませんでした。より具体的な質問をお試しいただくか、関連する文書をアップロードしてください。"
+  }
+
+  const queryLower = query.toLowerCase()
+
+  // 質問の種類を判定して適切な回答スタイルを選択
+  let answer = ""
+
+  if (queryLower.includes("いくら") || queryLower.includes("金額") || queryLower.includes("how much")) {
+    // 数値を求める質問
+    answer = `ご質問の「${query}」について、アップロードされた文書から以下の情報が見つかりました。\n\n`
+  } else if (queryLower.includes("なぜ") || queryLower.includes("理由") || queryLower.includes("why")) {
+    // 理由を求める質問
+    answer = `「${query}」の理由について、文書には以下の説明があります。\n\n`
+  } else if (queryLower.includes("どのように") || queryLower.includes("方法") || queryLower.includes("how")) {
+    // 方法を求める質問
+    answer = `「${query}」について、文書では以下のように説明されています。\n\n`
+  } else {
+    // 一般的な質問
+    answer = `「${query}」に関して、アップロードされた文書から以下の情報を抽出しました。\n\n`
+  }
+
+  // 最も関連性の高いチャンクから情報を抽出
+  relevantChunks.forEach((chunk, index) => {
+    if (index === 0) {
+      answer += `${chunk.metadata.filename}の${chunk.metadata.section}セクション（ページ${chunk.metadata.page}）によると、${query}について、${chunk.content}と考えられます。\n`
+    } else {
+      answer += `\n関連情報として、${chunk.metadata.filename}の${chunk.metadata.section}セクションでは、${chunk.content}と述べられています。\n`
+    }
+  })
+
+  return answer
 }
