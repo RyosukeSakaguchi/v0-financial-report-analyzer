@@ -32,6 +32,7 @@ interface RagResponse {
   answer: string
   sources: Source[]
   selectedDocuments: string[]
+  debugInfo?: any
 }
 
 interface RagSystemProps {
@@ -338,20 +339,21 @@ export function RagSystem({ onSourceSelect }: RagSystemProps) {
                     <div
                       key={index}
                       className="text-xs p-3 bg-gray-50 rounded border hover:bg-gray-100 cursor-pointer transition-colors"
-                      onClick={() => handleSourceClick(source)}
                     >
                       <div className="flex justify-between mb-1">
                         <span className="font-medium text-blue-700">{source.filename}</span>
                         <div className="flex items-center">
-                          <span className="text-gray-500 mr-2">ページ {source.page}</span>
+                          <button
+                            className="text-gray-500 hover:text-blue-600 mr-2 underline"
+                            onClick={() => onSourceSelect && onSourceSelect(source)}
+                          >
+                            ページ {source.page}
+                          </button>
                           <Button
                             variant="ghost"
                             size="icon"
                             className="h-5 w-5 text-blue-500"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleSourceClick(source)
-                            }}
+                            onClick={() => onSourceSelect && onSourceSelect(source)}
                           >
                             <ArrowUpRight className="h-3 w-3" />
                           </Button>
